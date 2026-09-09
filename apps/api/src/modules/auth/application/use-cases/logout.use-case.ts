@@ -17,7 +17,7 @@ export class LogoutUseCase {
             await this.refreshTokenRepository.revoke(storedToken.id);
         }
 
-        return { message: 'Logged out successfully' };
+        return { message: 'Logged out successfully.' };
     }
 
 }
