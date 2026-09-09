@@ -1,0 +1,407 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+
+enum UserRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum OrganizationStatus {
+  ACTIVE
+  SUSPENDED
+  DELETED
+}
+
+enum ApiKeyStatus {
+  ACTIVE
+  REVOKED
+  EXPIRED
+}
+
+enum QuotaPeriod {
+  DAILY
+  WEEKLY
+  MONTHLY
+  YEARLY
+  UNLIMITED
+}
+
+enum UsageStatus {
+  ALLOWED
+  REJECTED
+  QUOTA_EXCEEDED
+  RATE_LIMITED
+}
+
+enum RateLimitAlgorithm {
+  FIXED_WINDOW
+  SLIDING_WINDOW
+  TOKEN_BUCKET
+}
+
+enum WebhookStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum WebhookDeliveryStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  REVOKE
+  ROTATE
+  LOGIN
+  LOGOUT
+  QUOTA_UPDATE
+  QUOTA_RESET
+  MEMBER_INVITED
+  MEMBER_REMOVED
+  API_KEY_CREATED
+  API_KEY_REVOKED
+}
+
+enum AuditResource {
+  USER
+  ORGANIZATION
+  API_KEY
+  QUOTA
+  RATE_LIMIT
+  WEBHOOK
+  MEMBER
+}
+
+
+model User {
+  id              String   @id @default(uuid())
+  email           String   @unique
+  passwordHash    String
+  firstName       String?
+  lastName        String?
+  isEmailVerified Boolean  @default(false)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  lastLoginAt     DateTime?
+
+  memberships     OrganizationMember[]
+  auditLogs       AuditLog[]
+  refreshTokens   RefreshToken[]
+
+  @@index([email])
+  @@index([createdAt])
+}
+
+
+
+model Organization {
+  id          String             @id @default(uuid())
+  name        String
+  slug        String             @unique
+  status      OrganizationStatus @default(ACTIVE)
+
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  members     OrganizationMember[]
+  apiKeys     ApiKey[]
+  quota       Quota?
+  rateLimits  RateLimitRule[]
+  usage       UsageRecord[]
+  webhooks    Webhook[]
+  auditLogs   AuditLog[]
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+
+model OrganizationMember {
+  id             String   @id @default(uuid())
+
+  organizationId String
+  userId         String
+
+  role           UserRole @default(MEMBER)
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId],references: [id],onDelete: Cascade)
+
+  user           User @relation(fields: [userId],references: [id],onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@index([organizationId])
+  @@index([userId])
+}
+
+model ApiKey {
+  id             String       @id @default(uuid())
+
+  organizationId String
+
+  name           String
+
+  // Never store the actual API key.
+  // Store SHA-256 / HMAC hash.
+  keyHash        String       @unique
+
+  // Optional prefix for dashboard/debugging
+  keyPrefix      String?
+
+  status         ApiKeyStatus @default(ACTIVE)
+
+  // Weighted fairness
+  // Example:
+  // Production = 5
+  // Mobile     = 3
+  // Analytics  = 1
+  weight        Int          @default(1)
+
+  expiresAt      DateTime?
+
+  lastUsedAt     DateTime?
+
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  revokedAt      DateTime?
+
+  organization   Organization @relation(fields: [organizationId],references: [id],onDelete: Cascade)
+
+  usage          UsageRecord[]
+
+  @@index([organizationId])
+  @@index([organizationId, status])
+  @@index([keyHash])
+  @@index([expiresAt])
+}
+
+
+model Quota {
+  id             String      @id @default(uuid())
+
+  organizationId String      @unique
+
+  // Maximum quota for the selected period
+  limit          BigInt
+
+  period         QuotaPeriod @default(MONTHLY)
+
+  // Cost per request can be > 1
+  // Example:
+  // normal API request = 1
+  // expensive AI request = 10
+  defaultCost    Int         @default(1)
+
+  // Current period
+  periodStart    DateTime
+  periodEnd      DateTime
+
+  // Database snapshot only.
+  // Real-time remaining quota should live in Redis.
+  used           BigInt      @default(0)
+
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  organization   Organization @relation(fields: [organizationId],references: [id],onDelete: Cascade)
+
+  @@index([periodEnd])
+}
+
+
+model RateLimitRule {
+  id             String            @id @default(uuid())
+
+  organizationId String
+
+  name           String
+
+  // Example:
+  // 100 requests / 60 seconds
+  limit          Int
+  windowSeconds  Int
+
+  algorithm      RateLimitAlgorithm @default(FIXED_WINDOW)
+
+  endpoint       String?
+
+  method         String?
+
+  enabled        Boolean           @default(true)
+
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  organization   Organization @relation(fields: [organizationId],references: [id],onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([organizationId, enabled])
+  @@index([endpoint])
+}
+
+
+model UsageRecord {
+  id             String       @id @default(uuid())
+
+  organizationId String
+  apiKeyId       String?
+
+  // Request information
+  requestId      String?
+  endpoint       String?
+  method         String?
+
+  // How much quota this request consumed
+  cost           Int          @default(1)
+
+  status         UsageStatus
+
+  // Remaining quota after request
+  remaining      BigInt?
+
+  // Optional rejection reason
+  reason         String?
+
+  // Request metadata
+  ipAddress      String?
+  userAgent      String?
+
+  createdAt      DateTime     @default(now())
+
+  organization   Organization @relation(fields: [organizationId],references: [id],onDelete: Cascade)
+
+  apiKey         ApiKey? @relation(fields: [apiKeyId],references: [id],onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+  @@index([apiKeyId, createdAt])
+  @@index([organizationId, status])
+  @@index([requestId])
+  @@index([endpoint])
+}
+
+
+model Webhook {
+  id             String        @id @default(uuid())
+
+  organizationId String
+
+  name           String
+
+  url            String
+
+  secret         String
+
+  status         WebhookStatus @default(ACTIVE)
+
+  // Events this webhook subscribes to
+  events         String[]
+
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  organization   Organization @relation(fields: [organizationId],references: [id],onDelete: Cascade)
+
+  deliveries     WebhookDelivery[]
+
+  @@index([organizationId])
+  @@index([organizationId, status])
+}
+
+
+model WebhookDelivery {
+  id          String                  @id @default(uuid())
+
+  webhookId   String
+
+  event       String
+
+  payload     Json
+
+  status      WebhookDeliveryStatus   @default(PENDING)
+
+  attempts    Int                     @default(0)
+
+  responseCode Int?
+
+  responseBody String?
+
+  nextRetryAt DateTime?
+
+  deliveredAt DateTime?
+
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
+
+  webhook     Webhook @relation(fields: [webhookId],references: [id],onDelete: Cascade)
+
+  @@index([webhookId])
+  @@index([status])
+  @@index([nextRetryAt])
+  @@index([createdAt])
+}
+
+
+model AuditLog {
+  id             String        @id @default(uuid())
+
+  organizationId String?
+  userId         String?
+
+  action         AuditAction
+  resource       AuditResource
+
+  resourceId     String?
+
+  // Before/after data
+  metadata       Json?
+
+  ipAddress      String?
+  userAgent      String?
+
+  createdAt      DateTime      @default(now())
+
+  organization   Organization? @relation(fields: [organizationId],references: [id],onDelete: Cascade)
+
+  user           User? @relation(fields: [userId],references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+  @@index([userId, createdAt])
+  @@index([resource, resourceId])
+  @@index([action])
+}
+
+
+model RefreshToken {
+  id          String   @id @default(uuid())
+
+  userId      String
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  tokenHash   String   @unique
+
+  expiresAt   DateTime
+
+  revokedAt   DateTime?
+
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@index([tokenHash])
+}
