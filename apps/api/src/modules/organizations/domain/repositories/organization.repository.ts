@@ -1,6 +1,8 @@
 import { OrganizationEntity } from '../entities/organization.entity';
 
 export abstract class OrganizationRepository {
+  abstract findAll(): Promise<OrganizationEntity[]>;
+
   abstract findById(id: string): Promise<OrganizationEntity | null>;
 
   abstract findBySlug(slug: string): Promise<OrganizationEntity | null>;
