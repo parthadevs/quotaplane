@@ -7,9 +7,10 @@ import { OrganizationsModule } from './modules/organizations/organizations.modul
 import { ApiKeysModule } from './modules/api-keys/api-keys.module';
 import { QuotasModule } from './modules/quotas/quotas.module';
 import { RateLimitsModule } from './modules/rate-limits/rate-limits.module';
+import { UsageModule } from './modules/usage/usage.module';
 
 @Module({
-  imports: [ConfigModule, AuthModule, OrganizationsModule, ApiKeysModule, QuotasModule, RateLimitsModule],
+  imports: [ConfigModule, AuthModule, OrganizationsModule, ApiKeysModule, QuotasModule, RateLimitsModule, UsageModule],
   controllers: [AppController],
   providers: [AppService],
 })
