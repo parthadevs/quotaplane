@@ -5,9 +5,10 @@ import { AuthModule } from './modules/auth/auth.module';
 import { ConfigModule } from '@app/config';
 import { OrganizationsModule } from './modules/organizations/organizations.module';
 import { ApiKeysModule } from './modules/api-keys/api-keys.module';
+import { QuotasModule } from './modules/quotas/quotas.module';
 
 @Module({
-  imports: [ConfigModule, AuthModule, OrganizationsModule, ApiKeysModule],
+  imports: [ConfigModule, AuthModule, OrganizationsModule, ApiKeysModule, QuotasModule],
   controllers: [AppController],
   providers: [AppService],
 })
